@@ -28,6 +28,7 @@ pub async fn run() {
             log::info!("hey info")
             log::warn!("hey warn")
             log::error!("hey error")
+            println!("hey print")
 
         } else {
             env_logger::init();
