@@ -1,7 +1,7 @@
 use state::State;
 use winit::{
     event::{ElementState, Event, KeyEvent, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{EventLoop, EventLoopWindowTarget},
     keyboard::{KeyCode, PhysicalKey},
     window::WindowBuilder,
 };
@@ -56,26 +56,61 @@ pub async fn run() {
     }
 
     let mut state = State::new(&window).await;
+    let mut surface_configured = false;
 
-    let _ = event_loop.run(move |event, control_flow| match event {
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == state.window.id() => match event {
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        physical_key: PhysicalKey::Code(KeyCode::Escape),
-                        ..
-                    },
+    let event_handler = |event: Event<()>, control_flow: &EventLoopWindowTarget<()>| -> () {
+        match event {
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == state.window().id() => {
+                if !state.input(event) {
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    physical_key: PhysicalKey::Code(KeyCode::Escape),
+                                    ..
+                                },
+                            ..
+                        } => control_flow.exit(),
+                        WindowEvent::Resized(physical_size) => {
+                            log::info!("physical_size: {physical_size:?}");
+                            surface_configured = true;
+                            state.resize(*physical_size);
+                        }
+                        WindowEvent::RedrawRequested => {
+                            state.window().request_redraw();
 
-                ..
-            } => control_flow.exit(),
+                            if !surface_configured {
+                                return;
+                            }
+
+                            state.update();
+                            match state.render() {
+                                Ok(_) => {}
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                    state.resize(state.size)
+                                },
+                                Err(wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other) => {
+                                    log::error!("OutOfMemory");
+                                    control_flow.exit();
+                                }
+                                Err(wgpu::SurfaceError::Timeout) => {
+                                    log::warn!("Surface timeout")
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             _ => {}
-        },
-        _ => {}
+        };
+        ()
+    };
 
-    });
+    let _ = event_loop.run(event_handler);
 }
